@@ -12,11 +12,18 @@ $message = "";
 
 // Generate client code
 function generateClientCode($conn, $clientName) {
-    $clean = strtoupper(preg_replace('/[^A-Z]/', '', $clientName));
-    $base = substr($clean, 0, 3);
+    $words = preg_split('/\s+/', strtoupper(trim($clientName)));
+    $base = '';
 
-    // Pad with A-Z if less than 3 characters
-    if (strlen($base) < 3) {
+    if (count($words) >= 3) {
+        // Use first letters of first 3 words (e.g., First National Bank → FNB)
+        $base = substr($words[0], 0, 1) . substr($words[1], 0, 1) . substr($words[2], 0, 1);
+    } elseif (strlen($clientName) >= 3) {
+        // Use first 3 letters of name
+        $base = strtoupper(substr(preg_replace('/[^A-Z]/i', '', $clientName), 0, 3));
+    } else {
+        // Pad with letters if shorter than 3 (e.g., IT → ITA)
+        $base = strtoupper($clientName);
         $alphabet = range('A', 'Z');
         for ($i = 0; strlen($base) < 3 && $i < count($alphabet); $i++) {
             $base .= $alphabet[$i];
@@ -31,15 +38,12 @@ function generateClientCode($conn, $clientName) {
     $stmt->fetch();
     $stmt->close();
 
-    if ($lastCode) {
-        $number = (int)substr($lastCode, 3) + 1;
-    } else {
-        $number = 1;
-    }
-
+    $number = ($lastCode) ? ((int)substr($lastCode, 3) + 1) : 1;
     $suffix = str_pad($number, 3, '0', STR_PAD_LEFT);
+
     return $base . $suffix;
 }
+
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $name = trim($_POST['name']);
