@@ -1,8 +1,45 @@
 <?php
-include 'db.php';
+session_start();
+if (!isset($_SESSION['user_id'])) {
+    header("Location: login.php");
+    exit();
+}
 
-// Fetch contacts ordered by surname, name
-$result = $conn->query("SELECT * FROM contacts ORDER BY surname ASC, name ASC");
+// Optionally check for admin role
+if ($_SESSION['role'] !== 'admin') {
+    // Redirect or show access denied for pages requiring admin
+    // header("Location: unauthorized.php");
+    // exit();
+}
+
+include 'db.php';
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+
+// Handle optional messages via GET (for example, after deletion)
+$message = "";
+if (isset($_GET['msg'])) {
+    $message = htmlspecialchars($_GET['msg']);
+}
+
+// Get search term from GET
+$search = "";
+if (isset($_GET['search'])) {
+    $search = trim($_GET['search']);
+}
+
+// Prepare SQL query with optional search filter
+if ($search !== "") {
+    $search_param = "%" . $search . "%";
+    $stmt = $conn->prepare("SELECT * FROM contacts WHERE surname LIKE ? OR name LIKE ? OR email LIKE ? ORDER BY surname ASC, name ASC");
+    $stmt->bind_param("sss", $search_param, $search_param, $search_param);
+    $stmt->execute();
+    $result = $stmt->get_result();
+} else {
+    $result = $conn->query("SELECT * FROM contacts ORDER BY surname ASC, name ASC");
+}
+
+
 ?>
 
 <!DOCTYPE html>
@@ -81,17 +118,30 @@ $result = $conn->query("SELECT * FROM contacts ORDER BY surname ASC, name ASC");
     font-weight: 600;
   }
 
-  .btn-manage {
-    background-color: #f95438;
-    color: white;
+  .btn-manage, .btn-delete {
     padding: 5px 12px;
     border-radius: 4px;
     font-size: 0.85rem;
     transition: background-color 0.2s ease;
     display: inline-block;
+    color: white;
+    font-weight: 600;
+    margin-right: 6px;
+  }
+
+  .btn-manage {
+    background-color: #f95438;
   }
 
   .btn-manage:hover {
+    background-color: #c0392b;
+  }
+
+  .btn-delete {
+    background-color: #e74c3c;
+  }
+
+  .btn-delete:hover {
     background-color: #c0392b;
   }
 
@@ -108,6 +158,58 @@ $result = $conn->query("SELECT * FROM contacts ORDER BY surname ASC, name ASC");
 
   .add-new:hover {
     background-color: #922b21;
+  }
+
+  .message {
+    padding: 10px 15px;
+    margin-bottom: 15px;
+    border-radius: 5px;
+    font-size: 14px;
+  }
+
+  .message.success {
+    background-color: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+  }
+
+  .message.error {
+    background-color: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+  }
+
+  /* Search box styling */
+  .search-box {
+    margin-bottom: 15px;
+  }
+  input[type="text"] {
+    width: 300px;
+    padding: 8px;
+    font-size: 0.9rem;
+    border-radius: 4px;
+    border: 1px solid #ccc;
+  }
+  button.search-btn {
+    padding: 8px 12px;
+    font-size: 0.9rem;
+    border-radius: 4px;
+    border: none;
+    background-color: #c0392b;
+    color: white;
+    cursor: pointer;
+  }
+  button.search-btn:hover {
+    background-color: #922b21;
+  }
+  a.clear-link {
+    margin-left: 10px;
+    font-size: 0.9rem;
+    color: #c0392b;
+    text-decoration: none;
+  }
+  a.clear-link:hover {
+    text-decoration: underline;
   }
 
   @media (max-width: 600px) {
@@ -138,8 +240,8 @@ $result = $conn->query("SELECT * FROM contacts ORDER BY surname ASC, name ASC");
       color: #555;
       font-size: 0.85rem;
     }
-    tbody td:nth-of-type(1)::before { content: "Name"; }
-    tbody td:nth-of-type(2)::before { content: "Surname"; }
+    tbody td:nth-of-type(1)::before { content: "Surname"; }
+    tbody td:nth-of-type(2)::before { content: "Name"; }
     tbody td:nth-of-type(3)::before { content: "Email"; }
     tbody td:nth-of-type(4)::before { content: "Linked Clients"; }
     tbody td:nth-of-type(5)::before { content: "Manage"; }
@@ -149,6 +251,11 @@ $result = $conn->query("SELECT * FROM contacts ORDER BY surname ASC, name ASC");
     }
   }
 </style>
+<script>
+  function confirmDelete() {
+    return confirm('Are you sure you want to delete this contact?');
+  }
+</script>
 </head>
 <body>
 
@@ -157,13 +264,28 @@ $result = $conn->query("SELECT * FROM contacts ORDER BY surname ASC, name ASC");
 <h2>Contacts List</h2>
 <div style="clear: both;"></div>
 
+<?php if ($message): ?>
+  <div class="message <?= strpos($message, '❌') === 0 ? 'error' : 'success' ?>">
+    <?= $message ?>
+  </div>
+<?php endif; ?>
+
+<!-- Search Form -->
+<form method="GET" action="" class="search-box">
+  <input type="text" name="search" placeholder="Search by surname, name, or email" value="<?= htmlspecialchars($search) ?>" />
+  <button type="submit" class="search-btn">Search</button>
+  <?php if ($search !== ""): ?>
+    <a href="contacts.php" class="clear-link">Clear</a>
+  <?php endif; ?>
+</form>
+
 <a class="add-new" href="add_contact.php">+ Add New Contact</a>
 
 <table>
   <thead>
     <tr>
-      <th>Name</th>
       <th>Surname</th>
+      <th>Name</th>
       <th>Email</th>
       <th class="center">No. of linked clients</th>
       <th>Manage</th>
@@ -182,11 +304,14 @@ $result = $conn->query("SELECT * FROM contacts ORDER BY surname ASC, name ASC");
       $countStmt->close();
     ?>
     <tr>
-      <td><?= htmlspecialchars($row['name']) ?></td>
       <td><?= htmlspecialchars($row['surname']) ?></td>
+      <td><?= htmlspecialchars($row['name']) ?></td>
       <td><?= htmlspecialchars($row['email']) ?></td>
       <td class="center"><?= $linkedCount ?></td>
-      <td><a class="btn-manage" href="link_contact_clients.php?contact_id=<?= $contact_id ?>">Manage Clients</a></td>
+      <td>
+        <a class="btn-manage" href="link_contact_clients.php?contact_id=<?= $contact_id ?>">Manage Clients</a>
+        <a class="btn-delete" href="delete_contact.php?contact_id=<?= $contact_id ?>" onclick="return confirmDelete()">Delete</a>
+      </td>
     </tr>
   <?php endwhile; ?>
 <?php else: ?>
